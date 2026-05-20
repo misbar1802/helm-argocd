@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: default
+data:
+  default.conf: |
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass         http://flask-app-svc:5000;
+            proxy_set_header   Host $host;
+            proxy_set_header   X-Real-IP $remote_addr;
+            proxy_read_timeout 60s;
+        }
+
+        location /health {
+            proxy_pass http://flask-app-svc:5000/health;
+        }
+
+        location /reset {
+            proxy_pass http://flask-app-svc:5000/reset;
+        }
+    }

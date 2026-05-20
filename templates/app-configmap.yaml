@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flask-app-code
+  namespace: default
+data:
+  app.py: |
+    import os, time
+    from flask import Flask, jsonify
+    import redis
+    import psycopg2
+
+    app = Flask(__name__)
+
+    r = redis.Redis(
+        host=os.environ['REDIS_HOST'],
+        port=6379,
+        decode_responses=True
+    )
+
+    def get_pg():
+        return psycopg2.connect(
+            host=os.environ['POSTGRES_HOST'],
+            database=os.environ['POSTGRES_DB'],
+            user=os.environ['POSTGRES_USER'],
+            password=os.environ['POSTGRES_PASSWORD']
+        )
+
+    def init_db():
+        retries = 5
+        while retries:
+            try:
+                conn = get_pg()
+                cur = conn.cursor()
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS visits (
+                        id SERIAL PRIMARY KEY,
+                        visited_at TIMESTAMP DEFAULT NOW(),
+                        ip TEXT
+                    )
+                """)
+                conn.commit()
+                cur.close()
+                conn.close()
+                print("DB ready")
+                return
+            except Exception as e:
+                print(f"DB not ready: {e}")
+                retries -= 1
+                time.sleep(3)
+
+    init_db()
+
+    HTML_TEMPLATE = """
+    <html>
+    <head>
+      <title>Visit Counter</title>
+      <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 60px auto; }
+        h1 { color: #2563eb; }
+        .count { font-size: 4rem; font-weight: bold; color: #16a34a; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }
+        th { background: #f3f4f6; }
+        .badge { display:inline-block; background:#dbeafe; color:#1d4ed8;
+                 padding:4px 10px; border-radius:9999px; font-size:0.8rem; }
+      </style>
+    </head>
+    <body>
+      <h1>Visit Counter App</h1>
+      <p><span class="badge">Redis</span> Total visits (live counter):</p>
+      <div class="count">COUNT_PLACEHOLDER</div>
+      <p><span class="badge">Postgres</span> Last 10 visit logs:</p>
+      <table>
+        <tr><th>Visit ID</th><th>Timestamp</th></tr>
+        ROWS_PLACEHOLDER
+      </table>
+    </body>
+    </html>
+    """
+
+    @app.route('/')
+    def index():
+        count = r.incr('visit_count')
+
+        conn = get_pg()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO visits (ip) VALUES (%s)", ('visitor',))
+        conn.commit()
+        cur.execute("SELECT id, visited_at FROM visits ORDER BY id DESC LIMIT 10")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        rows_html = "".join(
+            "<tr><td>" + str(row[0]) + "</td><td>" + str(row[1]) + "</td></tr>"
+            for row in rows
+        )
+
+        html = HTML_TEMPLATE.replace("COUNT_PLACEHOLDER", str(count))
+        html = html.replace("ROWS_PLACEHOLDER", rows_html)
+        return html
+
+    @app.route('/health')
+    def health():
+        return jsonify(status="ok")
+
+    @app.route('/reset')
+    def reset():
+        r.set('visit_count', 0)
+        return jsonify(status="counter reset")
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=5000)
+
+  requirements.txt: |
+    flask==3.0.0
+    redis==5.0.1
+    psycopg2-binary==2.9.9

@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-app
+  namespace: default
+  labels:
+    app: flask-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flask-app
+  template:
+    metadata:
+      labels:
+        app: flask-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+    spec:
+      initContainers:
+        - name: install-deps
+          image: python:3.11-slim
+          command:
+            - pip
+            - install
+            - "--target=/app/deps"
+            - "flask==3.0.0"
+            - "redis==5.0.1"
+            - "psycopg2-binary==2.9.9"
+          volumeMounts:
+            - name: deps
+              mountPath: /app/deps
+      containers:
+        - name: flask-app
+          image: python:3.11-slim
+          command: ["python", "/app/code/app.py"]
+          env:
+            - name: REDIS_HOST
+              value: redis-svc
+            - name: POSTGRES_HOST
+              value: postgres-svc
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgres.password | quote }}
+            - name: PYTHONPATH
+              value: /app/deps
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - name: code
+              mountPath: /app/code
+            - name: deps
+              mountPath: /app/deps
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+      volumes:
+        - name: code
+          configMap:
+            name: flask-app-code
+        - name: deps
+          emptyDir: {}

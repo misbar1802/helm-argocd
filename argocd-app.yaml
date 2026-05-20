@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-k8s-project
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/misbar1802/argocd-demo.git
+    targetRevision: HEAD
+    path: my-k8s-chart
+    helm:
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
