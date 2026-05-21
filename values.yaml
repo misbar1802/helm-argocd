@@ -1,6 +1,6 @@
 # ── Nginx ──────────────────────────────────────────────
 nginx:
-  replicas: 1
+  replicas: 2
   image: nginx:latest
   port: 80
   serviceType: NodePort
